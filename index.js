@@ -94,11 +94,12 @@ var tools = {
 							tools.initSubSocket(s);
 						}
 						var d = bs.slice(b);
-						var nn = t.indexOf("Content-Length: ", 19) + 16;
+						var nn = t.indexOf("Content-Length: ", 16) + 16;
 						nn = t.substring(nn, t.indexOf("\r\n", nn)) - 0;
 
 						// console.log("Cln <<! --- s");
 						console.log("Cln << ", id + " , " + nn);
+						// console.log(bs.toString("utf8"));
 						// console.log(d.toString("utf8"));
 						// console.log("Cln <<! --- e");
 
