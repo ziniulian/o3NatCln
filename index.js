@@ -1,26 +1,63 @@
-var wsioc = require("socket.io-client");
-var socket = wsioc.connect("http://srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com/zi%niu%lian");	// 连接发布在 OpenShift3 上的服务
-// var socket = wsioc.connect("http://127.0.0.1:8080/zi%niu%lian");		// 连接本地服务
-var ai = 0;
+var natc = {
+	host: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
+	port: 80,
+	path: "/LZR/nat/",
+	http: require("http"),
+	https: require("https"),
+	pwd: "pwd",
 
-function run () {
-console.log(ai);
-	if (socket.connected) {
-		socket.emit("hello", "ai" + (ai ++));
-	}
-}
+	// 获取密码
+	getPwd: function () {
+		return natc.pwd;
+	},
 
-socket.on("Hi", function (dat) {
-	console.log(dat);
-	setTimeout(run, 3000);
-});
+	// 创建请求头
+	crtHead: function (p, l) {
+		return {
+			hostname: natc.host,
+			port: natc.port,
+			path: natc.path + p,
+			method: "POST",
+			headers: {
+				"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+				"Content-Length": l
+			}
+		}
+	},
 
-socket.on("connect", function () {
-	console.log("connect");
-	ai = 0;
-	socket.emit("hello", "ai");
-});
+	// 对接
+	link: function () {
+		var req = natc.http.request(
+			natc.crtHead("lnk/" + natc.getPwd(), 0),
+			function (res) {
+				res.on("data", function (dat) {
+					var s = dat.toString("utf8");
+					console.log(s);
+				});
+			}
+		);
+		req.on ("error", function (e) {
+			console.log("Link_Err: " + e.message);
+			natc.endLnk();
+		});
+		req.end();
+	},
 
-socket.on("disconnect", function () {
-	console.log("disconnect");
-});
+	// 停止对接
+	endLnk: function () {
+		var req = natc.http.request(
+			natc.crtHead("endLnk/" + natc.getPwd(), 0),
+			function (res) {
+				res.on("data", function (dat) {
+					console.log(dat.toString("utf8"));
+				});
+			}
+		);
+		req.on ("error", function (e) {
+			console.log("End_Err: " + e.message);
+		});
+		req.end();
+	},
+};
+
+natc.link();
