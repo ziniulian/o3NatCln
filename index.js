@@ -2,6 +2,8 @@ var natc = {
 	host: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
 	// host: "127.0.0.1",
 	port: 80,
+	localHost: "127.0.0.1",
+	localPost: 80,
 	path: "/LZR/nat/",
 	http: require("http"),
 	https: require("https"),
@@ -42,6 +44,9 @@ var natc = {
 						natc.linked = true;
 console.log("linked!");
 						natc.hdDat(dat);
+					} else {
+console.log("Err!");
+						// natc.endLnk();
 					}
 				});
 			}
@@ -135,7 +140,7 @@ console.log("req_" + id + " : next!");
 					}
 				});
 				res.on("end", function () {
-					natc.sendRes (id, natc.clsBuf.concat(d, size));
+					natc.vsDat (id, JSON.parse(natc.clsBuf.concat(d, size).toString("utf8")));
 				});
 			}
 		);
@@ -147,6 +152,33 @@ console.log("req_" + id + " : next!");
 	},
 
 	// 获取数据
+	vsDat: function (id, o) {
+		o.h.hostname = natc.localHost;
+		o.h.port = natc.localPost;
+		var req = natc.http.request(
+			o.h,
+			function (res) {
+				var d = [];
+				var size = 0;
+				res.on("data", function (dat) {
+					d.push(dat);
+					size += dat.length;
+				});
+				res.on("end", function () {
+					natc.sendRes (id, natc.clsBuf.concat(d, size));
+console.log("vs_" + id);
+				});
+			}
+		);
+		req.on ("error", function (e) {
+			console.log("Vs_Err_" + id + " : " + e.message);
+			natc.sendRes (id, natc.clsBuf.from("404!", "utf8"));
+		});
+		if (o.b) {
+			req.write(natc.clsBuf.from(o.b));
+		}
+		req.end();
+	},
 
 	// 发送应答
 	sendRes: function (id, buf) {
@@ -154,7 +186,7 @@ console.log("req_" + id + " : next!");
 			natc.crtHead("sendRes/" + id, buf.length),
 			function (res) {
 				res.on("data", function (dat) {
-console.log(id + "_res : " + dat.toString("utf8").substr(0, 15));
+console.log(id + "_res : " + dat.toString("utf8").substr(0, 5));
 				});
 			}
 		);
