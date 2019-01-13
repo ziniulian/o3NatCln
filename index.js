@@ -23,37 +23,6 @@ var natc = {
 		return natc.pwd;
 	},
 
-// 	// 对接 （利用http连接后，无法保持连接不断开）
-// 	lnk: function () {
-// 		var req = natc.http.request({
-// 				hostname: natc.remoteHost,
-// 				port: natc.remotePort,
-// 				path: "/lnk/" + natc.getPwd() + "/",
-// 				method: "POST",
-// 			}, function (res) {
-// 				res.on("data", function (dat) {
-// 					if (dat.toString("utf8") === "lnk") {
-// 						natc.socket = res.socket;
-// 						natc.socket.removeAllListeners("end");
-// 						natc.socket.removeAllListeners("error");
-// 						natc.socket.removeAllListeners("data");
-// 						natc.socket.on("error", natc.hdErr);
-// 						natc.socket.on("end", natc.endLnk);
-// 						natc.socket.on("data", natc.hdDat);
-// 						natc.send("lnk");
-// console.log("001");
-// 					} else {
-// 						res.socket.end();
-// 					}
-// 				});
-// 			}
-// 		);
-// 		req.on("error", function (e) {
-// 			console.log("lnk_err: " + e.message);
-// 		});
-// 		req.end();
-// 	},
-
 	// 对接
 	lnk: function () {
 		natc.socket = net.createConnection(natc.remotePort, natc.remoteHost);
@@ -112,7 +81,7 @@ console.log("link end!");
 		if (dat) {
 			lng = dat.length;
 		}
-		d = "POST /" + nam + "/ HTTP1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: " + lng + "\r\n\r\n";
+		d = "POST /" + nam + "/ HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: " + lng + "\r\n\r\n";
 		if (dat) {
 			d = natc.clsBuf.concat([
 				natc.clsBuf.form(d),
