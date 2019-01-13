@@ -2,259 +2,146 @@ var net = require("net");
 
 var natc = {
 	clsBuf: global.Buffer || require("buffer").Buffer,
-	pwd: "pwd",
 	remoteHost: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
 	// remoteHost: "127.0.0.1",
 	remotePort: 80,
 	localHost: "127.0.0.1",
 	localPost: 80,
-	linked: false,
-	rs: null,	// 接收端
-	ws: null,	// 发送端
+	https: require("https"),
+	http: require("http"),
+	pwd: "pwd",
+	socket: null,
+	size: 0,		// 尚未接收完的数据大小
+	buf: null,	// 已接收到的数据缓存
+	waiTim: 100,	// 等待时间
+	ws: [],		// 任务堆
+	rs: {},		// 连接池
+	rsize: 0,	// 连接数
 
 	// 获取密码
 	getPwd: function () {
-		return natc.pwd + "/";
+		return natc.pwd;
 	},
 
-	// 创建接收端
-	crtRs: function () {
-		var s = net.createConnection(natc.remotePort, natc.remoteHost);
-		s.on("error", natc.hdErr);
-		s.on("end", natc.hdEnd);
-		s.on("data", natc.chkRs);
-		s.write("POST /ws/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n");
-	},
-
-	// 检测接收端
-	chkRs: function (dat) {
-		if ((dat.length > 6) && (dat.toString("utf8", dat.length - 6) === "\r\n\r\nW,")) {
-console.log("W ...");
-			natc.rs = this;
-			this.removeAllListeners("data");
-			this.on("data", natc.hdRs);
-			natc.ws = net.createConnection(natc.remotePort, natc.remoteHost);
-			natc.ws.on("error", natc.hdErr);
-			natc.ws.on("end", natc.hdEnd);
-			// natc.ws.write("POST /rs/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n");
-			natc.ws.write("POST /rs/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: 10\r\n\r\n");
-		} else {
-			this.end();
-		}
-	},
-
-	// 接收信息
-	hdRs: function (dat) {
-console.log("R : " + dat.toString("utf8"));
-		if (natc.linked) {
-			natc.ws.write(dat);
-		} else {
-			if (dat.indexOf("R,") >= 0) {
-				natc.linked = true;
-console.log("linked!");
-			}
-		}
-	},
-
-	// 错误处理
-	hdErr: function (e) {
-		var s = "";
-		if (this === natc.rs) {
-			s = "RS_";
-		} else if (this === natc.ws) {
-			s = "WS_";
-		}
-console.log(s + "Err : " + e.message);
-		this.end();
-	},
-	hdEnd: function () {
-console.log("end");
-	},
-
-
-
-/*************************************************/
-
-	// 创建请求头
-	crtHead: function (p, l) {
-		return {
-			hostname: natc.host,
-			port: natc.port,
-			path: natc.path + p,
-			method: "POST",
-			headers: {
-				"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-				"Content-Length": l
-			}
-		};
-	},
+// 	// 对接 （利用http连接后，无法保持连接不断开）
+// 	lnk: function () {
+// 		var req = natc.http.request({
+// 				hostname: natc.remoteHost,
+// 				port: natc.remotePort,
+// 				path: "/lnk/" + natc.getPwd() + "/",
+// 				method: "POST",
+// 			}, function (res) {
+// 				res.on("data", function (dat) {
+// 					if (dat.toString("utf8") === "lnk") {
+// 						natc.socket = res.socket;
+// 						natc.socket.removeAllListeners("end");
+// 						natc.socket.removeAllListeners("error");
+// 						natc.socket.removeAllListeners("data");
+// 						natc.socket.on("error", natc.hdErr);
+// 						natc.socket.on("end", natc.endLnk);
+// 						natc.socket.on("data", natc.hdDat);
+// 						natc.send("lnk");
+// console.log("001");
+// 					} else {
+// 						res.socket.end();
+// 					}
+// 				});
+// 			}
+// 		);
+// 		req.on("error", function (e) {
+// 			console.log("lnk_err: " + e.message);
+// 		});
+// 		req.end();
+// 	},
 
 	// 对接
-	link: function () {
-		var req = natc.http.request(
-			natc.crtHead("lnk/" + natc.getPwd(), 0),
-			function (res) {
-				res.on("data", function (dat) {
-					if (natc.linked) {
-						natc.hdDat(dat);
-					} else if (dat.toString("utf8", 0, 2) === "O,") {
-						natc.linked = true;
-console.log("linked!");
-						natc.hdDat(dat);
-					} else {
-console.log("Err!");
-						// natc.endLnk();
-					}
-				});
-			}
-		);
-		req.on ("error", function (e) {
-			console.log("Link_Err: " + e.message);
-			natc.endLnk();
-		});
-		req.end();
+	lnk: function () {
+		natc.socket = net.createConnection(natc.remotePort, natc.remoteHost);
+		natc.socket.on("error", natc.hdErr);
+		natc.socket.on("end", natc.endLnk);
+		natc.socket.on("data", natc.hdDat);
+		natc.send("lnk/" + natc.getPwd());
 	},
 
 	// 停止对接
 	endLnk: function () {
-		natc.do = [];
-		natc.runing = false;
-		natc.linked = false;
-		var req = natc.http.request(
-			natc.crtHead("endLnk/" + natc.getPwd(), 0),
-			function (res) {}
-		);
-		req.on ("error", function (e) {});
-		req.end();
+		if (natc.socket) {
+			var s = natc.socket;
+			natc.socket = null;
+			// 发送所有任务
+			// 清空连接池
+			s.end();
+		}
+console.log("link end!");
 	},
 
-	// 数据处理
+	// 接收信息
 	hdDat: function (dat) {
-		var i, a = dat.toString("utf8").split(",");
-		for (i = 0; i < a.length; i ++) {
-			switch (a[i][0]) {
-				case "G":	// 获取请求
-				// case "D":	// 断开连接
-				case "E":	// 停止对接
-					natc.do.push(a[i]);
-console.log(a[i]);
-					break;
-			}
+		switch (dat.toString("utf8", 13, 16)) {
+			case "lnk":
+				natc.hdLnk(true);
+				break;
+			case "wrk":
+				natc.hdLnk(true);
+				break;
+			default:
+				natc.endLnk();
+				break;
 		}
-		setTimeout(natc.run, 1);
+	},
+
+	// 连接处理
+	hdLnk: function (wait) {
+		if (natc.ws.length) {
+			natc.sendWrk();
+		} else if (natc.rsize) {
+			if (wait) {
+				setTimeout(natc.hdLnk, natc.waiTim);
+			} else {
+				natc.send("rtn");
+			}
+		} else {
+			natc.send("lnk");
+			console.log("linking");
+		}
+	},
+
+	// 发送信息
+	send: function (nam, dat) {
+		var d, lng = 0;
+		if (dat) {
+			lng = dat.length;
+		}
+		d = "POST /" + nam + "/ HTTP1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: " + lng + "\r\n\r\n";
+		if (dat) {
+			d = natc.clsBuf.concat([
+				natc.clsBuf.form(d),
+				dat
+			]);
+		}
+		natc.socket.write(d);
 	},
 
 	// 执行任务
-	run: function () {
-		if (!natc.runing) {
-			if (natc.do.length) {
-				natc.runing = true;
-				var r = natc.do[0];
-				switch (natc.do[0][0]) {
-					case "G":	// 获取请求
-						natc.getReq(r.substr(1));
-						break;
-					// case "D":	// 断开连接
-					// 	break;
-					case "E":	// 停止对接
-						natc.endLnk();
-						break;
-				}
-			} else {
-				natc.runing = false;
-			}
-		}
+	doWrk: function (dat) {
+		// ... 主内容 ...
+
+		// 连接继续
+		natc.hdLnk();
 	},
 
-	// 继续任务
-	rerun: function () {
-		natc.runing = false;
-		setTimeout(natc.run, 1);
+	// 发送任务
+	sendWrk: function () {
+		// ... 主内容 ...
+
+		natc.ws = [];
 	},
 
-	// 获取请求
-	getReq: function (id) {
-console.log("req_" + id);
-		var req = natc.http.request(
-			natc.crtHead("getReq/" + id, 0),
-			function (res) {
-				var d = [];
-				var size = 0;
-				res.on("data", function (dat) {
-					if (!size && dat.indexOf("{\"ok\":true")) {
-						res.removeAllListeners("end");
-						res.removeAllListeners("data");
-						res.socket.end();
-console.log("req_" + id + " : err!");
-						if (dat.indexOf("{\"ok\":false") === 0) {
-console.log("req_" + id + " : next!");
-							natc.do.shift();
-						}
-						natc.rerun();
-					} else {
-						d.push(dat);
-						size += dat.length;
-					}
-				});
-				res.on("end", function () {
-					natc.vsDat (id, JSON.parse(natc.clsBuf.concat(d, size).toString("utf8")));
-				});
-			}
-		);
-		req.on ("error", function (e) {
-			console.log("Req_Err_" + id + " : " + e.message);
-			natc.rerun();
-		});
-		req.end();
-	},
-
-	// 获取数据
-	vsDat: function (id, o) {
-		o.h.hostname = natc.localHost;
-		o.h.port = natc.localPost;
-		var req = natc.http.request(
-			o.h,
-			function (res) {
-				var d = [];
-				var size = 0;
-				res.on("data", function (dat) {
-					d.push(dat);
-					size += dat.length;
-				});
-				res.on("end", function () {
-					natc.sendRes (id, natc.clsBuf.concat(d, size));
-console.log("vs_" + id);
-				});
-			}
-		);
-		req.on ("error", function (e) {
-			console.log("Vs_Err_" + id + " : " + e.message);
-			natc.sendRes (id, natc.clsBuf.from("404!", "utf8"));
-		});
-		if (o.b) {
-			req.write(natc.clsBuf.from(o.b));
-		}
-		req.end();
-	},
-
-	// 发送应答
-	sendRes: function (id, buf) {
-		var req = natc.http.request(
-			natc.crtHead("sendRes/" + id, buf.length),
-			function (res) {
-				res.on("data", function (dat) {
-console.log(id + "_res : " + dat.toString("utf8").substr(0, 5));
-				});
-			}
-		);
-		req.on ("error", function (e) {
-			console.log("Res_Err_" + id + " : " + e.message);
-		});
-		req.write(buf);
-		req.end();
-		natc.do.shift();
-		natc.rerun();
+	// 错误处理 （临时测试使用，实际运行时不需要）
+	hdErr: function (e) {
+console.log ("Err : " + e.message);
+		natc.endLnk();
 	}
 };
 
-natc.crtRs();
+natc.lnk();
