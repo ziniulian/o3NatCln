@@ -1,22 +1,79 @@
+var net = require("net");
+
 var natc = {
-	host: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
-	// host: "127.0.0.1",
-	port: 80,
+	clsBuf: global.Buffer || require("buffer").Buffer,
+	pwd: "pwd",
+	remoteHost: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
+	// remoteHost: "127.0.0.1",
+	remotePort: 80,
 	localHost: "127.0.0.1",
 	localPost: 80,
-	path: "/LZR/nat/",
-	http: require("http"),
-	https: require("https"),
-	pwd: "pwd",
-	clsBuf: global.Buffer || require("buffer").Buffer,
-	linked: false,	// 是否已对接
-	runing: false,	// run 是否在工作
-	do: [],		// 需要运行的任务
+	linked: false,
+	rs: null,	// 接收端
+	ws: null,	// 发送端
 
 	// 获取密码
 	getPwd: function () {
-		return natc.pwd;
+		return natc.pwd + "/";
 	},
+
+	// 创建接收端
+	crtRs: function () {
+		var s = net.createConnection(natc.remotePort, natc.remoteHost);
+		s.on("error", natc.hdErr);
+		s.on("end", natc.hdEnd);
+		s.on("data", natc.chkRs);
+		s.write("POST /ws/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: 0\r\n\r\n");
+	},
+
+	// 检测接收端
+	chkRs: function (dat) {
+		if ((dat.length > 6) && (dat.toString("utf8", dat.length - 6) === "\r\n\r\nW,")) {
+console.log("W ...");
+			natc.rs = this;
+			this.removeAllListeners("data");
+			this.on("data", natc.hdRs);
+			natc.ws = net.createConnection(natc.remotePort, natc.remoteHost);
+			natc.ws.on("error", natc.hdErr);
+			natc.ws.on("end", natc.hdEnd);
+			// natc.ws.write("POST /rs/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n\r\n");
+			natc.ws.write("POST /rs/" + natc.getPwd() + " HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: 10\r\n\r\n");
+		} else {
+			this.end();
+		}
+	},
+
+	// 接收信息
+	hdRs: function (dat) {
+console.log("R : " + dat.toString("utf8"));
+		if (natc.linked) {
+			natc.ws.write(dat);
+		} else {
+			if (dat.indexOf("R,") >= 0) {
+				natc.linked = true;
+console.log("linked!");
+			}
+		}
+	},
+
+	// 错误处理
+	hdErr: function (e) {
+		var s = "";
+		if (this === natc.rs) {
+			s = "RS_";
+		} else if (this === natc.ws) {
+			s = "WS_";
+		}
+console.log(s + "Err : " + e.message);
+		this.end();
+	},
+	hdEnd: function () {
+console.log("end");
+	},
+
+
+
+/*************************************************/
 
 	// 创建请求头
 	crtHead: function (p, l) {
@@ -29,7 +86,7 @@ var natc = {
 				"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
 				"Content-Length": l
 			}
-		}
+		};
 	},
 
 	// 对接
@@ -200,4 +257,4 @@ console.log(id + "_res : " + dat.toString("utf8").substr(0, 5));
 	}
 };
 
-natc.link();
+natc.crtRs();
