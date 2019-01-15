@@ -37,8 +37,10 @@ var natc = {
 	// 停止对接
 	endLnk: function () {
 		if (natc.socket) {
+			if (natc.socket.end) {
+				console.log("已断开 : " + Date.now());
+			}
 			natc.socket = null;
-			console.log("已断开 : " + Date.now());
 			natc.lnk();
 		}
 		this.end();
@@ -124,7 +126,7 @@ console.log("错误信息 ： " + dat.toString("utf8", 0, 15));
 			}
 		} else {
 			natc.send(natc.socket, "lnk");
-			// console.log("linking ... : " + Date.now());
+			console.log("linking ... : " + Date.now());
 		}
 	},
 
