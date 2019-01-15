@@ -39,15 +39,13 @@ var natc = {
 		if (natc.socket) {
 			natc.socket = null;
 			console.log("已断开 : " + Date.now());
+			natc.lnk();
 		}
 		this.end();
-
-		natc.lnk();
 	},
 
 	// 接收信息
 	hdDat: function (dat) {
-// console.log(dat.toString());
 		if (natc.size === 0) {
 			var k = dat.indexOf("\r\n\r\n");
 			if (k > 0) {
@@ -79,18 +77,23 @@ var natc = {
 						}
 						break;
 					default:
+console.log("其它信息 ： " + dat.toString("utf8", 0, 15));
+// console.log(dat.toString());
+						if (!natc.socket) {
+							natc.socket = true;
+						}
 						natc.endLnk.call(this);
 						break;
 				}
-			} else if (dat.indexOf("\n\n")) {
-				console.log("不规范的结束符");
-				natc.endLnk.call(this);
 			} else {
-				console.log("理论上不太会出现的HTTP头信息不完整");
-				natc.buf = dat;
-				natc.size = -1;
+console.log("错误信息 ： " + dat.toString("utf8", 0, 15));
+// console.log(dat.toString());
+				if (!natc.socket) {
+					natc.socket = true;
+				}
+				natc.endLnk.call(this);
 			}
-		} else if (natc.size > 0) {
+		} else {
 			var d = false;
 			if (dat.length > natc.size) {
 				// 理论上不会出现的数据溢出
@@ -106,10 +109,6 @@ var natc = {
 					// natc.hdDat(d);
 				}
 			}
-		} else {
-			console.log("补充理论上不太会出错的HTTP头信息");
-			natc.size = 0;
-			natc.hdDat(natc.clsBuf.concat([natc.buf, dat]));
 		}
 	},
 
