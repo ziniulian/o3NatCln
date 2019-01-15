@@ -25,37 +25,91 @@ var natc = {
 
 	// 对接
 	lnk: function () {
-		natc.socket = net.createConnection(natc.remotePort, natc.remoteHost);
-		natc.socket.on("error", natc.hdErr);
-		natc.socket.on("end", natc.endLnk);
-		natc.socket.on("data", natc.hdDat);
-		natc.send("lnk/" + natc.getPwd());
+		console.log("连接中 ...");
+		var s = net.createConnection(natc.remotePort, natc.remoteHost);
+		s.on("error", natc.endLnk);
+		s.on("end", natc.endLnk);
+		s.on("data", natc.hdDat);
+		natc.size = 0;
+		natc.send(s, "lnk/" + natc.getPwd());
 	},
 
 	// 停止对接
 	endLnk: function () {
 		if (natc.socket) {
-			var s = natc.socket;
 			natc.socket = null;
-			// 发送所有任务
-			// 清空连接池
-			s.end();
+			console.log("已断开 : " + Date.now());
 		}
-console.log("link end!");
+		this.end();
+
+		natc.lnk();
 	},
 
 	// 接收信息
 	hdDat: function (dat) {
-		switch (dat.toString("utf8", 13, 16)) {
-			case "lnk":
-				natc.hdLnk(true);
-				break;
-			case "wrk":
-				natc.hdLnk(true);
-				break;
-			default:
-				natc.endLnk();
-				break;
+// console.log(dat.toString());
+		if (natc.size === 0) {
+			var k = dat.indexOf("\r\n\r\n");
+			if (k > 0) {
+				switch (dat.toString("utf8", 13, 16)) {
+					case "lnk":
+						if (!natc.socket) {
+							natc.socket = this;
+							console.log("已连接 : " + Date.now());
+						}
+						natc.hdLnk(true);
+						break;
+					case "wrk":
+						var i = dat.indexOf("Content-Length: ", 18, "utf8") + 16;
+						var j = dat.indexOf("\r\n", i, "utf8");
+						natc.size = dat.toString("utf8", i, j);
+						i = k + 4;	// 数据起始位置
+						j = dat.length - i;		// 数据实际长度
+						if (natc.size > j) {
+							natc.size -= j;
+							natc.buf = [dat.slice(i)];
+						} else {
+							k = i + natc.size;
+							natc.size = 0;
+							natc.doWrk(dat.slice(i, k));
+							if (natc.size < j) {
+								console.log("理论上不会出现的数据溢出");
+								// natc.hdDat(dat.slice(i + natc.size));
+							}
+						}
+						break;
+					default:
+						natc.endLnk.call(this);
+						break;
+				}
+			} else if (dat.indexOf("\n\n")) {
+				console.log("不规范的结束符");
+				natc.endLnk.call(this);
+			} else {
+				console.log("理论上不太会出现的HTTP头信息不完整");
+				natc.buf = dat;
+				natc.size = -1;
+			}
+		} else if (natc.size > 0) {
+			var d = false;
+			if (dat.length > natc.size) {
+				// 理论上不会出现的数据溢出
+				d = dat.slice(natc.size);
+				dat = dat.slice(0, natc.size);
+			}
+			natc.buf.push(dat);
+			natc.size -= dat.length;
+			if (natc.size === 0) {
+				natc.doWrk(natc.clsBuf.concat(natc.buf));
+				if (d) {
+					console.log("理论上不会出现的数据溢出");
+					// natc.hdDat(d);
+				}
+			}
+		} else {
+			console.log("补充理论上不太会出错的HTTP头信息");
+			natc.size = 0;
+			natc.hdDat(natc.clsBuf.concat([natc.buf, dat]));
 		}
 	},
 
@@ -67,28 +121,26 @@ console.log("link end!");
 			if (wait) {
 				setTimeout(natc.hdLnk, natc.waiTim);
 			} else {
-				natc.send("rtn");
+				natc.send(natc.socket, "rtn");
 			}
 		} else {
-			natc.send("lnk");
-			console.log("linking");
+			natc.send(natc.socket, "lnk");
+			// console.log("linking ... : " + Date.now());
 		}
 	},
 
 	// 发送信息
-	send: function (nam, dat) {
-		var d, lng = 0;
+	send: function (s, nam, dat) {
+		var d = "POST /" + nam + "/ HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: ";
 		if (dat) {
-			lng = dat.length;
-		}
-		d = "POST /" + nam + "/ HTTP/1.1\r\nHost: " + natc.remoteHost + "\r\nConnection: keep-alive\r\nContent-Length: " + lng + "\r\n\r\n";
-		if (dat) {
-			d = natc.clsBuf.concat([
-				natc.clsBuf.form(d),
+			d = natc.clsBuf.concat ([
+				natc.clsBuf.from (d + dat.length + "\r\n\r\n"),
 				dat
 			]);
+		} else {
+			d += "0\r\n\r\n";
 		}
-		natc.socket.write(d);
+		s.write(d);
 	},
 
 	// 执行任务
@@ -109,7 +161,7 @@ console.log("link end!");
 	// 错误处理 （临时测试使用，实际运行时不需要）
 	hdErr: function (e) {
 console.log ("Err : " + e.message);
-		natc.endLnk();
+		this.end();
 	}
 };
 
