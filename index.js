@@ -36,14 +36,18 @@ var natc = {
 
 	// 停止对接
 	endLnk: function () {
+		this.removeAllListeners("data");
+		this.removeAllListeners("error");
+		this.removeAllListeners("end");
+		this.on("error", natc.hdErr);
+		this.end();
 		if (natc.socket) {
-			if (natc.socket.end) {
+			if (natc.socket.removeAllListeners) {
 				console.log("已断开 : " + Date.now());
 			}
 			natc.socket = null;
 			natc.lnk();
 		}
-		this.end();
 	},
 
 	// 接收信息
@@ -79,7 +83,7 @@ var natc = {
 						}
 						break;
 					default:
-console.log("其它信息 ： " + dat.toString("utf8", 0, 15));
+console.log("其它信息 ： " + dat.toString("utf8", 0, 16));
 // console.log(dat.toString());
 						if (!natc.socket) {
 							natc.socket = true;
@@ -88,7 +92,7 @@ console.log("其它信息 ： " + dat.toString("utf8", 0, 15));
 						break;
 				}
 			} else {
-console.log("错误信息 ： " + dat.toString("utf8", 0, 15));
+console.log("错误信息 ： " + dat.toString("utf8", 0, 16));
 // console.log(dat.toString());
 				if (!natc.socket) {
 					natc.socket = true;
