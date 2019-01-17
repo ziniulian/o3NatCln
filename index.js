@@ -2,21 +2,27 @@ var net = require("net");
 
 var natc = {
 	clsBuf: global.Buffer || require("buffer").Buffer,
-	remoteHost: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
-	// remoteHost: "127.0.0.1",
-	remotePort: 80,
+	// remoteHost: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
+	remoteHost: "127.0.0.1",
+	remotePort: 8080,
 	localHost: "127.0.0.1",
-	localPost: 80,
+	localPort: 80,
 	https: require("https"),
 	http: require("http"),
 	pwd: "pwd",
-	socket: null,
-	size: 0,		// 尚未接收完的数据大小
-	buf: null,	// 已接收到的数据缓存
-	waiTim: 100,	// 等待时间
+
+	socket: null,	// 接收端
+	twrk: null,		// 尚未接收完的数据大小
+	buf: null,		// 已接收到的数据缓存
+
 	ws: [],		// 任务堆
+	pw: null,	// 回滚任务堆
 	rs: {},		// 连接池
 	rsize: 0,	// 连接数
+
+	sendSocket: null,	// 发送端
+	keepWork: 0,	// 持续发送任务
+	waiTim: 1000,	// 等待时间
 
 	// 获取密码
 	getPwd: function () {
@@ -29,7 +35,7 @@ var natc = {
 		var s = net.createConnection(natc.remotePort, natc.remoteHost);
 		s.on("error", natc.endLnk);
 		s.on("end", natc.endLnk);
-		s.on("data", natc.hdDat);
+		s.on("data", natc.hdLnk);
 		natc.size = 0;
 		natc.send(s, "lnk/" + natc.getPwd());
 	},
@@ -42,95 +48,193 @@ var natc = {
 		this.on("error", natc.hdErr);
 		this.end();
 		if (natc.socket) {
-			if (natc.socket.removeAllListeners) {
-				console.log("已断开 : " + Date.now());
-			}
+			console.log("已断开 : " + Date.now());
 			natc.socket = null;
 			natc.lnk();
 		}
 	},
 
-	// 接收信息
+	// 连接处理
+	hdLnk: function (dat) {
+		if (dat.indexOf("HTTP/1.1 200 lnk\r\n") === 0) {
+			natc.socket = this;
+			this.removeAllListeners("data");
+			this.on("data", natc.hdDat);
+		} else {
+			this.end();
+			natc.lnk();
+		}
+	},
+
+	// 数据处理
 	hdDat: function (dat) {
-		if (natc.size === 0) {
-			var k = dat.indexOf("\r\n\r\n");
-			if (k > 0) {
-				switch (dat.toString("utf8", 13, 16)) {
-					case "lnk":
-						if (!natc.socket) {
-							natc.socket = this;
-							console.log("已连接 : " + Date.now());
-						}
-						natc.hdLnk(true);
-						break;
-					case "wrk":
-						var i = dat.indexOf("Content-Length: ", 18, "utf8") + 16;
-						var j = dat.indexOf("\r\n", i, "utf8");
-						natc.size = dat.toString("utf8", i, j);
-						i = k + 4;	// 数据起始位置
-						j = dat.length - i;		// 数据实际长度
-						if (natc.size > j) {
-							natc.size -= j;
-							natc.buf = [dat.slice(i)];
-						} else {
-							k = i + natc.size;
-							natc.size = 0;
-							natc.doWrk(dat.slice(i, k));
-							if (natc.size < j) {
-								console.log("理论上不会出现的数据溢出");
-								// natc.hdDat(dat.slice(i + natc.size));
-							}
-						}
-						break;
-					default:
-console.log("其它信息 ： " + dat.toString("utf8", 0, 16));
-// console.log(dat.toString());
-						if (!natc.socket) {
-							natc.socket = true;
-						}
-						natc.endLnk.call(this);
-						break;
+		var i, j, p, id;
+		if (natc.buf) {
+			natc.buf.push(dat);
+			dat = natc.clsBuf.concat(natc.buf);
+			natc.buf = null;
+		}
+		p = 0;	// 指针
+		while (dat.length > p) {
+			if (natc.twrk) {
+				i = dat.length - p;
+				if (i < natc.twrk.size) {
+					natc.twrk.size -= i;
+					natc.twrk.buf.push(dat.slice(p));
+					p = dat.length;
+				} else {
+					j = p + natc.twrk.size;
+					natc.twrk.buf.push(dat.slice(p, j));
+					natc.doWrk(natc.twrk.id, natc.clsBuf.concat(natc.twrk.buf));
+					natc.twrk = null;
+					p = j;
 				}
 			} else {
-console.log("错误信息 ： " + dat.toString("utf8", 0, 16));
-// console.log(dat.toString());
-				if (!natc.socket) {
-					natc.socket = true;
-				}
-				natc.endLnk.call(this);
-			}
-		} else {
-			var d = false;
-			if (dat.length > natc.size) {
-				// 理论上不会出现的数据溢出
-				d = dat.slice(natc.size);
-				dat = dat.slice(0, natc.size);
-			}
-			natc.buf.push(dat);
-			natc.size -= dat.length;
-			if (natc.size === 0) {
-				natc.doWrk(natc.clsBuf.concat(natc.buf));
-				if (d) {
-					console.log("理论上不会出现的数据溢出");
-					// natc.hdDat(d);
+				i = dat.indexOf(".", p);
+				if (i > 0) {
+					id = dat.toString("utf8", p, i) - 0;
+					i ++;
+					if (id === 0) {
+						p = i;
+console.log("linking ...");
+					} else {
+						j = dat.indexOf(".", i);
+						if (j > 0) {
+							p = dat.toString("utf8", i, j) - 0;
+							if (p === 0) {
+								natc.clrSub(id);
+							} else {
+								natc.twrk = {
+									id: id,
+									buf: [],
+									size: p,
+								};
+							}
+							p = j + 1;
+						} else {
+							natc.buf = [dat.slice(p)];
+							p = dat.length;
+						}
+					}
+				} else {
+					natc.buf = [dat.slice(p)];
+					p = dat.length;
 				}
 			}
 		}
 	},
 
-	// 连接处理
-	hdLnk: function (wait) {
-		if (natc.ws.length) {
-			natc.sendWrk();
-		} else if (natc.rsize) {
-			if (wait) {
-				setTimeout(natc.hdLnk, natc.waiTim);
-			} else {
-				natc.send(natc.socket, "rtn");
-			}
+	// 清除子连接
+	clrSub: function (id) {
+		if (natc.rs[id]) {
+			console.log("End : " + id);
+			natc.rs[id].end();
+			delete natc.rs[id];
+			natc.rsize --;
+		}
+	},
+
+	// 执行任务
+	doWrk: function (id, dat) {
+		console.log(id + " : << " + dat.length);
+		var s = natc.rs[id];
+		if (s) {
+			s.write(dat);
 		} else {
-			natc.send(natc.socket, "lnk");
-			console.log("linking ... : " + Date.now());
+			natc.crtSub(id, dat);
+		}
+	},
+
+	// 创建子连接
+	crtSub: function (id, dat) {
+		var s = net.createConnection(natc.localPort, natc.localHost);
+		s.on("error", natc.endSub);
+		s.on("end", natc.endSub);
+		s.on("data", natc.hdSub);
+		s.id = id;
+		natc.rs[id] = s;
+		natc.rsize ++;
+		s.write(dat);
+	},
+
+	// 结束子连接
+	endSub: function () {
+		var id = this.id;
+		this.removeAllListeners("data");
+		this.removeAllListeners("error");
+		this.removeAllListeners("end");
+		this.on("error", natc.hdErr);
+		this.id = 0;
+		this.end();
+		if (id) {
+			natc.ws.push(natc.clsBuf.from(id + ".0."));
+			natc.clrSub(id);
+			natc.sendWrk();
+		}
+	},
+
+	// 处理子连接
+	hdSub: function (dat) {
+		console.log(this.id + " : >> " + dat.length);
+		natc.ws.push(natc.clsBuf.concat([
+			natc.clsBuf.from(this.id + "." + dat.length + "."),
+			dat
+		]));
+		natc.sendWrk();
+	},
+
+	// 发送任务
+	sendWrk: function () {
+// console.log("sendWork...");
+		if (!natc.sendSocket) {
+			natc.sendSocket = net.createConnection(natc.remotePort, natc.remoteHost);
+			natc.sendSocket.on("error", natc.endWrk);
+			natc.sendSocket.on("end", natc.endWrk);
+			natc.sendSocket.on("data", natc.hdWrk);
+		}
+		if (!natc.pw) {
+			natc.pw = natc.clsBuf.concat(natc.ws);
+			natc.ws = [];
+			natc.send(natc.sendSocket, "wrk", natc.pw);
+		}
+		// natc.keepWork = setTimeout(natc.sendWrk, natc.waiTim);
+	},
+
+	endWrk: function () {
+		this.removeAllListeners("data");
+		this.removeAllListeners("error");
+		this.removeAllListeners("end");
+		this.on("error", natc.hdErr);
+		this.end();
+		natc.sendSocket = null;
+		natc.rollBackWrk();
+	},
+
+	hdWrk: function (dat) {
+		if (dat.indexOf("HTTP/1.1 200 wOK") === 0) {
+			// 发送成功
+			natc.pw = null;
+			if (natc.ws.length) {
+				natc.sendWrk();
+			} else {
+				this.end();
+			}
+		} else if (dat.toString("utf8", 13, 16) === "wER") {
+			console.log("服务端数据溢出！？");
+			natc.pw = null;
+			this.end();
+		} else {
+			this.end();
+		}
+	},
+
+	// 任务回滚
+	rollBackWrk: function () {
+		if (natc.pw) {
+console.log("roll Back!");
+			natc.ws.unshift(natc.pw);
+			natc.pw = null;
+			natc.sendWrk();
 		}
 	},
 
@@ -145,27 +249,14 @@ console.log("错误信息 ： " + dat.toString("utf8", 0, 16));
 		} else {
 			d += "0\r\n\r\n";
 		}
+console.log("-- >> " + d.length);
 		s.write(d);
 	},
 
-	// 执行任务
-	doWrk: function (dat) {
-		// ... 主内容 ...
-
-		// 连接继续
-		natc.hdLnk();
-	},
-
-	// 发送任务
-	sendWrk: function () {
-		// ... 主内容 ...
-
-		natc.ws = [];
-	},
-
-	// 错误处理 （临时测试使用，实际运行时不需要）
+	// 错误处理
 	hdErr: function (e) {
-console.log ("Err : " + e.message);
+		this.removeAllListeners("data");
+		this.removeAllListeners("end");
 		this.end();
 	}
 };
