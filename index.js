@@ -212,7 +212,7 @@ var natc = {
 				this.end();
 			}
 		} else if (dat.toString("utf8", 13, 16) === "wER") {
-			natc.log("服务端数据溢出！？");
+			natc.log("服务端发生了理论上不可能出现的错误！");
 			natc.pw = null;
 			this.end();
 		} else {
