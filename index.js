@@ -2,27 +2,22 @@ var net = require("net");
 
 var natc = {
 	clsBuf: global.Buffer || require("buffer").Buffer,
-	// remoteHost: "srv-lzrnat.7e14.starter-us-west-2.openshiftapps.com",
-	remoteHost: "127.0.0.1",
-	remotePort: 8080,
+	remoteHost: "nat-lzrpp1.7e14.starter-us-west-2.openshiftapps.com",
+	// remoteHost: "127.0.0.1",
+	remotePort: 80,
 	localHost: "127.0.0.1",
 	localPort: 80,
-	https: require("https"),
-	http: require("http"),
 	pwd: "pwd",
+	logAble: true,
 
 	socket: null,	// 接收端
 	twrk: null,		// 尚未接收完的数据大小
 	buf: null,		// 已接收到的数据缓存
 
+	sendSocket: null,	// 发送端
+	rs: {},		// 连接池
 	ws: [],		// 任务堆
 	pw: null,	// 回滚任务堆
-	rs: {},		// 连接池
-	rsize: 0,	// 连接数
-
-	sendSocket: null,	// 发送端
-	keepWork: 0,	// 持续发送任务
-	waiTim: 1000,	// 等待时间
 
 	// 获取密码
 	getPwd: function () {
@@ -31,7 +26,7 @@ var natc = {
 
 	// 对接
 	lnk: function () {
-		console.log("连接中 ...");
+		natc.log("连接中 ...");
 		var s = net.createConnection(natc.remotePort, natc.remoteHost);
 		s.on("error", natc.endLnk);
 		s.on("end", natc.endLnk);
@@ -48,7 +43,7 @@ var natc = {
 		this.on("error", natc.hdErr);
 		this.end();
 		if (natc.socket) {
-			console.log("已断开 : " + Date.now());
+			console.log("断!");
 			natc.socket = null;
 			natc.lnk();
 		}
@@ -60,6 +55,7 @@ var natc = {
 			natc.socket = this;
 			this.removeAllListeners("data");
 			this.on("data", natc.hdDat);
+			console.log("对接完成 ...");
 		} else {
 			this.end();
 			natc.lnk();
@@ -96,7 +92,7 @@ var natc = {
 					i ++;
 					if (id === 0) {
 						p = i;
-console.log("linking ...");
+						natc.log("linking ...");
 					} else {
 						j = dat.indexOf(".", i);
 						if (j > 0) {
@@ -127,16 +123,15 @@ console.log("linking ...");
 	// 清除子连接
 	clrSub: function (id) {
 		if (natc.rs[id]) {
-			console.log("End : " + id);
+			natc.log("End : " + id);
 			natc.rs[id].end();
 			delete natc.rs[id];
-			natc.rsize --;
 		}
 	},
 
 	// 执行任务
 	doWrk: function (id, dat) {
-		console.log(id + " : << " + dat.length);
+		natc.log(id + " : << " + dat.length);
 		var s = natc.rs[id];
 		if (s) {
 			s.write(dat);
@@ -153,7 +148,6 @@ console.log("linking ...");
 		s.on("data", natc.hdSub);
 		s.id = id;
 		natc.rs[id] = s;
-		natc.rsize ++;
 		s.write(dat);
 	},
 
@@ -175,7 +169,7 @@ console.log("linking ...");
 
 	// 处理子连接
 	hdSub: function (dat) {
-		console.log(this.id + " : >> " + dat.length);
+		natc.log(this.id + " : >> " + dat.length);
 		natc.ws.push(natc.clsBuf.concat([
 			natc.clsBuf.from(this.id + "." + dat.length + "."),
 			dat
@@ -185,7 +179,6 @@ console.log("linking ...");
 
 	// 发送任务
 	sendWrk: function () {
-// console.log("sendWork...");
 		if (!natc.sendSocket) {
 			natc.sendSocket = net.createConnection(natc.remotePort, natc.remoteHost);
 			natc.sendSocket.on("error", natc.endWrk);
@@ -197,7 +190,6 @@ console.log("linking ...");
 			natc.ws = [];
 			natc.send(natc.sendSocket, "wrk", natc.pw);
 		}
-		// natc.keepWork = setTimeout(natc.sendWrk, natc.waiTim);
 	},
 
 	endWrk: function () {
@@ -220,7 +212,7 @@ console.log("linking ...");
 				this.end();
 			}
 		} else if (dat.toString("utf8", 13, 16) === "wER") {
-			console.log("服务端数据溢出！？");
+			natc.log("服务端数据溢出！？");
 			natc.pw = null;
 			this.end();
 		} else {
@@ -231,7 +223,7 @@ console.log("linking ...");
 	// 任务回滚
 	rollBackWrk: function () {
 		if (natc.pw) {
-console.log("roll Back!");
+			natc.log("roll Back!");
 			natc.ws.unshift(natc.pw);
 			natc.pw = null;
 			natc.sendWrk();
@@ -249,7 +241,7 @@ console.log("roll Back!");
 		} else {
 			d += "0\r\n\r\n";
 		}
-console.log("-- >> " + d.length);
+		natc.log("-- >> " + d.length);
 		s.write(d);
 	},
 
@@ -258,6 +250,13 @@ console.log("-- >> " + d.length);
 		this.removeAllListeners("data");
 		this.removeAllListeners("end");
 		this.end();
+	},
+
+	// 信息输出
+	log: function (msg) {
+		if (natc.logAble) {
+			console.log(msg);
+		}
 	}
 };
 
